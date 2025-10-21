@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>APK Creator — Hacker's Hideout</title>
+  <style>
+    body{font-family:Inter,system-ui,Arial;margin:0;background:#0b1220;color:#e6eef8;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+    .card{width:100%;max-width:720px;background:#071022;padding:20px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.6)}
+    input{width:100%;padding:10px;border-radius:8px;border:1px solid #163047;background:#071722;color:#e6eef8;margin-bottom:10px}
+    button{padding:10px 14px;border-radius:8px;border:0;background:#0ea5a6;color:#022;cursor:pointer}
+    .muted{color:#8fa7bf;font-size:13px}
+    a.download{display:inline-block;margin-top:12px;padding:10px 12px;border-radius:8px;background:#1b8f84;color:white;text-decoration:none}
+    .error{color:#ff6b6b;margin-top:8px}
+    .row{display:flex;gap:10px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2 style="margin:0 0 8px">Create APK</h2>
+    <div class="muted">Default endpoint converts the given web app into an APK. This client calls <code>/api/create</code> on the same origin so it works when deployed to Vercel without extra settings.</div>
+
+    <label style="display:block;margin-top:12px">App name</label>
+    <input id="name" value="apihub" />
+
+    <label style="display:block">Web app link (must be HTTPS)</label>
+    <input id="link" value="https://bj-bot-hosting.vercel.app/" />
+
+    <div style="margin-top:10px" class="row">
+      <button id="createBtn">Create APK</button>
+      <button id="cliBtn" style="background:#3b82f6">Generate (CLI)</button>
+    </div>
+
+    <div id="status" class="muted" style="margin-top:12px">Ready</div>
+
+    <div id="result"></div>
+    <div id="err" class="error"></div>
+  </div>
+
+<script>
+const createBtn = document.getElementById('createBtn');
+const cliBtn = document.getElementById('cliBtn');
+const status = document.getElementById('status');
+const result = document.getElementById('result');
+const err = document.getElementById('err');
+
+function showError(e){ err.textContent = e; status.textContent = 'Failed'; }
+
+createBtn.addEventListener('click', async () => {
+  err.textContent = '';
+  result.innerHTML = '';
+  const name = (document.getElementById('name').value||'').trim();
+  const link = (document.getElementById('link').value||'').trim();
+
+  if (!name || !link) { showError('Name and link are required.'); return; }
+  const endpoint = `/api/create?name=${encodeURIComponent(name)}&link=${encodeURIComponent(link)}`;
+
+  status.textContent = 'Sending request...';
+  createBtn.disabled = true;
+
+  try {
+    const res = await fetch(endpoint);
+    if (!res.ok) throw new Error('Server returned HTTP ' + res.status);
+
+    const ct = res.headers.get('content-type') || '';
+    // If binary (APK), download directly
+    if (ct.indexOf('application/vnd.android.package-archive') !== -1 || ct.indexOf('application/octet-stream') !== -1) {
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name + '.apk';
+      a.className = 'download';
+      a.textContent = 'Download APK';
+      result.appendChild(a);
+      status.textContent = 'APK ready (binary)';
+      // revoke after some time
+      setTimeout(()=>URL.revokeObjectURL(url), 60000);
+    } else {
+      // try parse as JSON or text with URL inside
+      const text = await res.text();
+      try {
+        const j = JSON.parse(text);
+        // common response keys: url, download, result
+        const downloadUrl = j.url || j.download || j.result || null;
+        if (downloadUrl) {
+          result.innerHTML = `<a class="download" href="${downloadUrl}" target="_blank" rel="noopener">Download APK</a>`;
+          status.textContent = 'APK available (URL)';
+        } else {
+          result.innerHTML = '<pre style="white-space:pre-wrap;max-height:240px;overflow:auto;">' + escapeHtml(JSON.stringify(j, null, 2)) + '</pre>';
+          status.textContent = 'Response (JSON)';
+        }
+      } catch (e) {
+        // plain text (maybe a URL)
+        const t = text.trim();
+        if (t.startsWith('http')) {
+          result.innerHTML = `<a class="download" href="${t}" target="_blank" rel="noopener">Download APK</a>`;
+          status.textContent = 'APK available (URL)';
+        } else {
+          result.innerHTML = '<pre style="white-space:pre-wrap;max-height:240px;overflow:auto;">' + escapeHtml(t) + '</pre>';
+          status.textContent = 'Response (text)';
+        }
+      }
+    }
+  } catch (e) {
+    console.error(e);
+    showError('Error: ' + e.message);
+  } finally {
+    createBtn.disabled = false;
+  }
+});
+
+cliBtn.addEventListener('click', () => {
+  const name = encodeURIComponent((document.getElementById('name').value||'').trim());
+  const link = encodeURIComponent((document.getElementById('link').value||'').trim());
+  const example = `node cli/create-apk.js ${decodeURIComponent(name)} ${decodeURIComponent(link)}`;
+  result.innerHTML = '<div class="muted">Run this on your machine:</div><pre style="white-space:pre-wrap;">' + escapeHtml(example) + '</pre>';
+});
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }); }
+</script>
+</body>
+  </html>
